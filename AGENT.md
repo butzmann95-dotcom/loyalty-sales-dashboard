@@ -4,23 +4,27 @@ Este documento es la fuente de verdad para el agente que refresca el dashboard.
 Repo: `butzmann95-dotcom/loyalty-sales-dashboard` · Carpeta local: `~/Documents/loyalty-sales-dashboard`
 Publicación: GitHub Pages sirve `docs/` (el repo es PÚBLICO — **nunca** commitear `data/data.json` ni `.env`; solo se publica `docs/data.enc.json` cifrado).
 
+## ALCANCE: SOLO la actividad de Manuel
+Todo se filtra a Manuel Lizcano: HubSpot `hubspot_owner_id = 300514391`, Apollo `user_id = "696929f8ba1034001d66dcf5"` (manuel@whyloyalty.com). NUNCA mezclar actividad del resto del equipo.
+
 ## Flujo del refresh (cada mañana ~7:30 AM)
 
 ### 1. Jalar datos vía conectores MCP
 
-**HubSpot** (`search_crm_objects`):
+**HubSpot** (`search_crm_objects`) — TODAS las queries llevan además el filtro `hubspot_owner_id EQ 300514391`:
 - `calls` con `hs_timestamp GTE <hoy>` → `kpis.calls_today` (usar el campo `total`)
 - `calls` con `hs_timestamp GTE <hoy - 7 días>` → `kpis.calls_7d`
 - `emails` con `hs_timestamp GTE <hoy>` → `kpis.emails_today`
 - `emails` con `hs_timestamp GTE <hoy - 7 días>` → `kpis.emails_7d`
-- `deals` con `dealstage NOT_IN [closedwon, closedlost, 110553132, 110553133]`,
+- `deals` con `dealstage NOT_IN [closedwon, closedlost, 110553132, 110553133]` + owner,
   properties: `dealname, dealstage, pipeline, amount, closedate, hubspot_owner_id, hs_lastmodifieddate`,
   limit 200, sort `hs_lastmodifieddate DESC`. El `total` → `kpis.open_deals_count`.
   - NOTA: NO usar `hs_is_closed` como filtro — está mal poblado en este portal (regresa closedwon).
-- Companies del watchlist (IDs fijos abajo): refrescar `num_associated_deals` y `hs_lastmodifieddate`.
+  (Al 2026-06-10 son 9 deals: Vesuvius, Metalsa, KCC, Milwaukee, HEB, Daikin, CB & Nationals, Covia, Grupo AlEn.)
 
 **Apollo** (`apollo_emailer_campaigns_search`, 4 páginas de 25):
-- Quedarse con campañas `active: true` y `unique_delivered > 0`.
+- Quedarse SOLO con campañas cuyo `user_id == "696929f8ba1034001d66dcf5"`.
+- Para la tabla del dashboard: las `active: true` (aunque tengan 0 entregados).
 - Campos numéricos pueden venir como "loading" → tratarlos como 0.
 
 ### 2. Reconstruir `data/data.json`
@@ -28,8 +32,8 @@ Publicación: GitHub Pages sirve `docs/` (el repo es PÚBLICO — **nunca** comm
 Mantener el MISMO esquema que el archivo actual (leerlo primero). Reglas:
 - Mapeos de stages y owners: ver tablas abajo.
 - `pipeline.stages`: agregación count/value de los deals abiertos por stage (orden de STAGE_ORDER).
-- `pipeline.top_deals`: top 15 por monto. `pipeline.recent_deals`: top 10 por `hs_lastmodifieddate`.
-- `watchlist`: conservar los existentes; si una company del watchlist tiene deal abierto nuevo, actualizar la nota.
+- `pipeline.top_deals`: todos (o top 15) por monto. `pipeline.recent_deals`: top 10 por `hs_lastmodifieddate`.
+- `watchlist`: cuentas clave de Manuel (Daikin deal 35539706403, HEB deal 57539103303, Vesuvius deal 59680309169, Grupo AlEn deal 46786369576). Actualizar `stage` y `note` según el estado real del deal (ej. si la fecha de cierre ya venció, anotarlo; si avanzó de etapa, reflejarlo).
 - `history`: APPEND un snapshot del día `{date, calls_7d, emails_7d, open_deals_value, apollo_replied_total}`.
   Conservar máximo 60 entradas (recortar las más viejas). No duplicar si ya existe la fecha de hoy.
 - `generated_at`: timestamp actual con zona -06:00.
@@ -70,13 +74,15 @@ git push
 
 STAGE_ORDER: qualifiedtobuy, presentationscheduled, 48891008, decisionmakerboughtin, contractsent, 45093906, 110553127, 110553128, 110553129, 110553130, 110553131
 
-### Owners principales
-83730145 Erik Dominguez · 89752064 Zaid Rangel · 91885937 Hugo Rubio · 294202410 Luis Carlos Ramos · 300514391 Manuel Lizcano · 437743508 Rick Aquino · 732691591 Julian Vargas · 81468524 Israel Sanchez · 80111865 Areli Mendoza · 310772050 Jaime Garza
+### Identidad de Manuel
+- HubSpot owner: 300514391 (Manuel Lizcano) — portal 23318586
+- Apollo user: 696929f8ba1034001d66dcf5 (manuel@whyloyalty.com)
 
-### Watchlist (company IDs en HubSpot, portal 23318586)
-- Daikin Applied → 12129198265
-- HEB → 10465750870
-- Vesuvius México → 15247298740
+### Watchlist (deal IDs de Manuel en HubSpot)
+- Daikin - SLP & US → deal 35539706403
+- HEB → deal 57539103303
+- Vesuvius - MX/US → deal 59680309169
+- Grupo AlEn (Licitación EXPO, $10K) → deal 46786369576
 
-URL de company: `https://app.hubspot.com/contacts/23318586/record/0-2/{id}`
 URL de deal: `https://app.hubspot.com/contacts/23318586/record/0-3/{id}`
+URL de company: `https://app.hubspot.com/contacts/23318586/record/0-2/{id}`

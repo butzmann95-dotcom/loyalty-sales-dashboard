@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dashboard",
+      "cwd": "docs",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "4173", "--directory", "/Users/manuellizcanobutzmann/Documents/loyalty-sales-dashboard/docs"],
+      "port": 4173
+    }
+  ]
+}
