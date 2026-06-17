@@ -48,6 +48,19 @@
   .wcard b{font-size:15px}
   .wcard .note{color:var(--amber);font-size:12.5px;margin:6px 0}
   .wcard .meta{color:var(--muted);font-size:12px}
+  .wcard.lost{border-left:3px solid var(--red)}
+  .wcard.progress,.wcard.won{border-left:3px solid var(--green)}
+  .wcard.stale{border-left:3px solid var(--amber)}
+  .wcard.scheduled{border-left:3px solid var(--accent)}
+  .wcard .note.lost{color:var(--red)}
+  .wcard .note.progress,.wcard .note.won{color:var(--green)}
+  .wcard .note.scheduled{color:var(--accent)}
+  .fresh{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:10px;margin-right:8px}
+  .fresh.ok{background:rgba(63,185,80,.15);color:var(--green)}
+  .fresh.warn{background:rgba(210,153,34,.15);color:var(--amber)}
+  .fresh.old{background:rgba(248,81,73,.15);color:var(--red)}
+  .delta{font-weight:600;white-space:nowrap}
+  .delta.up{color:var(--green)} .delta.down{color:var(--red)} .delta.flat{color:var(--muted)}
   .scroll{overflow-x:auto}
   .pct-good{color:var(--green)} .pct-bad{color:var(--red)}
   footer{margin:30px 0 10px;color:var(--muted);font-size:12px;text-align:center}
@@ -78,7 +91,7 @@
 <div id="app">
   <header>
     <h1>Loyalty Logistics — <span>Sales Dashboard</span> <span style="font-size:12px;color:var(--muted);font-weight:400">· solo Manuel</span></h1>
-    <div class="updated">Actualizado: <b id="updated"></b> · <a href="#" onclick="localStorage.removeItem('dashKey');location.reload();return false" style="font-size:12px">cerrar sesión</a></div>
+    <div class="updated"><span id="fresh"></span>Actualizado: <b id="updated"></b> · <a href="#" onclick="localStorage.removeItem('dashKey');location.reload();return false" style="font-size:12px">cerrar sesión</a></div>
   </header>
 
   <div class="kpis" id="kpis"></div>
@@ -151,25 +164,45 @@ function render(d){
   document.getElementById('lock').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   const k = d.kpis;
-  document.getElementById('updated').textContent = new Date(d.generated_at).toLocaleString('es-MX', {dateStyle:'medium', timeStyle:'short'});
+  const gen = new Date(d.generated_at);
+  document.getElementById('updated').textContent = gen.toLocaleString('es-MX', {dateStyle:'medium', timeStyle:'short'});
+
+  // Badge de frescura: ¿son los datos de hoy?
+  const fe = document.getElementById('fresh');
+  const ageDays = Math.floor((Date.now() - gen.getTime()) / 86400000);
+  if(gen.toDateString() === new Date().toDateString()){ fe.className='fresh ok'; fe.textContent='● Al día'; }
+  else if(ageDays <= 2){ fe.className='fresh warn'; fe.textContent='● Hace '+Math.max(1,ageDays)+' día'+(ageDays>1?'s':''); }
+  else { fe.className='fresh old'; fe.textContent='⚠ Datos de hace '+ageDays+' días'; }
+
+  // Deltas vs. el snapshot anterior del history
+  const hist = d.history || [];
+  const prev = hist.length >= 2 ? hist[hist.length-2] : null;
+  const dlt = (cur, prevVal, money) => {
+    if(!prev || prevVal == null) return '';
+    const diff = cur - prevVal;
+    if(diff === 0) return ` <span class="delta flat" title="vs ${prev.date}">= 0</span>`;
+    const cls = diff > 0 ? 'up' : 'down';
+    const val = money ? fmt$(Math.abs(diff)) : fmtN(Math.abs(diff));
+    return ` <span class="delta ${cls}" title="vs ${prev.date}">${diff>0?'▲':'▼'} ${val}</span>`;
+  };
 
   document.getElementById('kpis').innerHTML = [
-    {l:'Llamadas hoy', v:fmtN(k.calls_today), s:fmtN(k.calls_7d)+' últimos 7 días', c:'hl'},
-    {l:'Correos hoy (HubSpot)', v:fmtN(k.emails_today), s:fmtN(k.emails_7d)+' últimos 7 días', c:'hl'},
-    {l:'Deals abiertos', v:fmtN(k.open_deals_count), s:'en ambos pipelines', c:''},
-    {l:'Valor pipeline abierto', v:fmt$(k.open_deals_value), s:'USD (muestra top '+k.open_deals_sample+')', c:'money'},
+    {l:'Llamadas hoy', v:fmtN(k.calls_today), s:fmtN(k.calls_7d)+' últimos 7 días'+dlt(k.calls_7d, prev&&prev.calls_7d), c:'hl'},
+    {l:'Correos hoy (HubSpot)', v:fmtN(k.emails_today), s:fmtN(k.emails_7d)+' últimos 7 días'+dlt(k.emails_7d, prev&&prev.emails_7d), c:'hl'},
+    {l:'Deals abiertos', v:fmtN(k.open_deals_count), s:'en ambos pipelines'+dlt(k.open_deals_count, prev&&prev.open_deals_count), c:''},
+    {l:'Valor pipeline abierto', v:fmt$(k.open_deals_value), s:'USD'+dlt(k.open_deals_value, prev&&prev.open_deals_value, true), c:'money'},
     {l:'Campañas activas Apollo', v:fmtN(k.apollo_active_campaigns), s:fmtN(k.apollo_delivered_total)+' correos entregados (hist.)', c:''},
-    {l:'Respuestas Apollo', v:fmtN(k.apollo_replied_total), s:'reply rate '+k.apollo_reply_rate+'% · open '+k.apollo_open_rate+'%', c:''},
+    {l:'Respuestas Apollo', v:fmtN(k.apollo_replied_total), s:'reply '+k.apollo_reply_rate+'% · open '+k.apollo_open_rate+'%'+dlt(k.apollo_replied_total, prev&&prev.apollo_replied_total), c:''},
   ].map(x => `<div class="kpi ${x.c}"><div class="l">${x.l}</div><div class="v">${x.v}</div><div class="s">${x.s}</div></div>`).join('');
 
-  const maxV = Math.max(...d.pipeline.stages.map(s => s.value), 1);
+  const maxC = Math.max(...d.pipeline.stages.map(s => s.count), 1);
   document.getElementById('funnel').innerHTML =
-    '<div style="font-size:13px;color:var(--muted);margin-bottom:10px">Deals y valor por etapa</div>' +
+    '<div style="font-size:13px;color:var(--muted);margin-bottom:10px">Deals por etapa (barra = # de deals)</div>' +
     d.pipeline.stages.map(s => `
       <div class="stage">
-        <div class="top"><b>${s.label} <span style="color:var(--muted);font-weight:400">(${s.count})</span></b>
-        <span class="val">${fmt$(s.value)}</span></div>
-        <div class="bar"><i style="width:${Math.max(2, s.value/maxV*100)}%"></i></div>
+        <div class="top"><b>${s.label}</b>
+        <span class="val">${s.count} deal${s.count!==1?'s':''} · ${fmt$(s.value)}</span></div>
+        <div class="bar"><i style="width:${Math.max(6, s.count/maxC*100)}%"></i></div>
       </div>`).join('');
 
   document.getElementById('topdeals').innerHTML =
@@ -179,10 +212,13 @@ function render(d){
       <td><span class="tag">${t.stage_label}</span></td>
       <td class="num money">${t.amount ? fmt$(t.amount) : '—'}</td></tr>`).join('');
 
-  document.getElementById('watchlist').innerHTML = d.watchlist.map(w => `
-    <div class="wcard"><b><a href="${w.url}" target="_blank">${w.name}</a></b>
-    <div class="note">⚠ ${w.note}</div>
-    <div class="meta">${w.deals} deal(s) en CRM · etapa: ${w.stage}</div></div>`).join('');
+  const stIcon = {lost:'✕', won:'✓', progress:'▲', stale:'⏰', scheduled:'📅'};
+  document.getElementById('watchlist').innerHTML = d.watchlist.map(w => {
+    const st = w.status || 'stale';
+    return `<div class="wcard ${st}"><b><a href="${w.url}" target="_blank">${w.name}</a></b>
+    <div class="note ${st}">${stIcon[st] || '⚠'} ${w.note}</div>
+    <div class="meta">${w.deals} deal(s) en CRM · etapa: ${w.stage}</div></div>`;
+  }).join('');
 
   document.getElementById('campaigns').innerHTML =
     '<tr><th>Campaña</th><th class="num">Entregados</th><th class="num">Open %</th><th class="num">Replies</th><th class="num">Reply %</th><th class="num">Rebotes</th></tr>' +
